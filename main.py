@@ -1,8 +1,8 @@
+import os
 import lzma
+import shutil
 
-ALPHABET = "abcdefghijklmnopqrstuvwxyz"
-OK_CHARS = ALPHABET + ALPHABET.upper() + "0123456789 "
-
+from consts import *
 
 def main_1():
     in_file = r"texts\wiki_chocolate_trimmed.txt"
@@ -30,10 +30,31 @@ def main_2():
                 line = line.strip().lower()
                 file.write(f"{line}\n")
 
+def extract_txts_from_anc():
+    corpus_dir = r"Corpora\OANC_GrAF\OANC-GrAF\data"
+    out_dir = r"Corpora\OANC_GrAF\OANC_Text_Files"
+    i = 0
+    for root, _, files in os.walk(corpus_dir):
+        for file in files:
+            _, ext = os.path.splitext(file)
+            if ext != ".txt":
+                continue
+            # print(os.path.join(root, file))
+            out_name = f"{i}_{file}"
+            # out_name = os.path.join(root, file).replace(r"Corpora\OANC_GrAF\OANC-GrAF\data", "")
+            # out_name = out_name[1:]
+            # out_name = out_name.replace("-", "_").replace("\\", "-")
+            # print(out_name)
+            shutil.copy(src=os.path.join(root, file), dst=os.path.join(out_dir, out_name))
+            
+            i += 1
+
+
 
 def main():
-    main_1()
+    # main_1()
     # main_2()
+    extract_txts_from_anc()
 
 
 if __name__ == "__main__":
