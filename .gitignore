@@ -1,5 +1,5 @@
 .vscode
 Corpora
 Texts
-Prefix_info/*.json
+Prefix_info
 __pycache__
