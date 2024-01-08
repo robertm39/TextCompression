@@ -1,4 +1,5 @@
 from typing import cast, Mapping
+from abc import ABC, abstractmethod
 import os
 import json
 import random
@@ -130,6 +131,44 @@ def get_prefix_info() -> dict[str, dict[str, int]]:
     return prefix_info
 
 
+# Return the given text, cleaned up.
+def clean_up_text(text: str) -> str:
+    text = text.replace("\n", " ").replace("\t", " ").lower()
+    text = "".join([c for c in text if c in OUT_CHARS])
+    while "  " in text:
+        text = text.replace("  ", " ")
+    return text
+
+
+# Predicts the next character in a text.
+class CharPredictor(ABC):
+    # Return the possible next characters in decreasing order of likeliness.
+    @abstractmethod
+    def predict_char(self, text: str) -> list[str] | None:
+        ...
+
+
+# A letter-predictor using fixed-length prefixes.
+class FixedLengthPredixMarkovPredictor(CharPredictor):
+    def __init__(self, prefix_info: PrefixInfo, prefix_len: int) -> None:
+        self.prefix_info = prefix_info
+        self.prefix_len = prefix_len
+
+    def predict_char(self, text: str) -> list[str] | None:
+        # If the text isn't long enough, we have no prediction.
+        if len(text) < self.prefix_len:
+            return None
+
+        # Get the prefix.
+        prefix = text[-self.prefix_len :]
+        freqs = self.prefix_info.get(prefix, None)
+        if freqs is None:
+            return None
+
+        sorted_chars = get_chars_sorted_by_frequency_descending(freqs=freqs)
+        return sorted_chars
+
+
 PADDING_HEADER_LENGTH = 3
 
 
@@ -151,13 +190,10 @@ def markov_chain_compress(text: str, prefix_len=4) -> bytes:
             continue
 
         # Get the frequencies for the current prefix.
-        # freqs = None?
         if len(current_prefix) == prefix_len:
             freqs = prefix_info.get(current_prefix, None)
         else:
             freqs = None
-            # if freqs is not None:
-            #     break
 
         # If we have the frequencies, see if they match the current letter.
         found_in_freqs = False
@@ -169,9 +205,6 @@ def markov_chain_compress(text: str, prefix_len=4) -> bytes:
             elif c == chars_in_order[1]:
                 bits += bitlist("01")
                 found_in_freqs = True
-            # elif c == chars_in_order[2]:
-            #     bits += bitlist("001")
-            #     found_in_freqs = True
 
         # If we couldn't use the frequencies, specify the character.
         if not found_in_freqs:
@@ -213,11 +246,8 @@ def markov_chain_decompress(msg: bytes, prefix_len=4) -> str | None:
     b_iter = iter(bits)
     try:
         while True:
-            # TODO read one character.
+            # Read one character.
             b = next(b_iter)
-            # print("")
-            # print(b)
-            # print(current_prefix)
             b = cast(int, b)
 
             # Get the frequency information, if any.
@@ -315,10 +345,82 @@ def test_compress():
     print(decompressed)
 
 
+# Return the snippets contained in the given text.
+def get_snippets_from_text(text: str, snippet_len: int) -> list[str]:
+    result = list[str]()
+
+    for i in range(len(text)):
+        snippet = text[max(0, i - snippet_len) : i]
+        filler = EMPTY_CHAR * (snippet_len - len(snippet))
+        snippet = filler + snippet
+        result.append(snippet)
+
+    return result
+
+
+def make_snippets_lists():
+    snippet_len = 5
+    files_dir = r"Corpora\OANC_GrAF\OANC_Text_Files"
+    out_dir = rf"Datasets\Oanc_Snippets_Len{snippet_len}"
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+
+    out_template = os.path.join(out_dir, "snippets_{}.txt")
+
+    snippets = list[str]()
+    chunk_num = 0
+
+    # Write the snippets to a file.
+    def write_chunk(chunk: list[str]):
+        # if len(snippets) == 0:  # type: ignore
+        #     return
+        # if len(snippets) < SNIPPETS_PER_FILE and not force:  # type: ignore
+        #     return
+
+        # chunk, snippets = snippets[:SNIPPETS_PER_FILE], snippets[SNIPPETS_PER_FILE:]  # type: ignore
+        out_filename = out_template.format(chunk_num)
+        with open(out_filename, "w") as file:
+            for snippet in chunk[:-1]:
+                file.write(f"{snippet}\n")
+            file.write(chunk[-1])
+
+    # Get the snippets in each file and save them.
+    for filename in os.listdir(files_dir):
+        filepath = os.path.join(files_dir, filename)
+        with open(filepath, encoding="utf8") as file:
+            text = clean_up_text(file.read())
+        file_snippets = get_snippets_from_text(text=text, snippet_len=snippet_len)
+        snippets.extend(file_snippets)
+
+        if len(snippets) >= SNIPPETS_PER_FILE:
+            chunk, snippets = snippets[:SNIPPETS_PER_FILE], snippets[SNIPPETS_PER_FILE:]
+            write_chunk(chunk)
+            chunk_num += 1
+        # flush_snippets()
+
+    if len(snippets) > 0:
+        write_chunk(snippets)
+    # flush_snippets(force=True)
+
+
+# def shuffle_snippets_lists():
+#     snippet_len = 5
+#     in_dir = rf"Datasets\Oanc_Snippets_Len{snippet_len}"
+#     # if not os.path.exists(in_dir):
+#     #     os.mkdir(in_dir)
+#     in_template = os.path.join(in_dir, "snippets_{}.txt")
+
+#     out_dir = rf"Datasets\Oanc_Snippets_Len{snippet_len}_Shuffled"
+#     if not os.path.exists(out_dir):
+#         os.mkdir(out_dir)
+#     out_template = os.path.join(out_dir, "snippets_{}.txt")
+
+
 def main():
     # make_prefix_info()
     # markov_make_text()
     test_compress()
+    # make_snippets_lists()
 
 
 if __name__ == "__main__":
