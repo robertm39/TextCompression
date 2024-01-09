@@ -1,27 +1,10 @@
 import os
 import torch
 from torch.utils.data import Dataset
-from torchvision import datasets
-from torchvision.transforms import ToTensor
-import matplotlib.pyplot as plt
 
 from consts import *
 
-
-# Return a one-hot vector encoding the given character. Invalid characters are all zeros.
-def char_to_onehot(c: str) -> torch.Tensor:
-    index = OUT_CHARS.find(c)
-    result = torch.zeros(size=[27])
-    if 0 <= index <= 26:
-        result[index] = 1
-    return result
-
-
-# Return an array encoding the given string.
-def snippet_to_array(snippet: str) -> torch.Tensor:
-    onehots = [char_to_onehot(c) for c in snippet]
-    return torch.stack(onehots, dim=1)
-
+from text_nn_utils import char_to_onehot, snippet_to_array
 
 # A dataset of snippets followed by the char after them.
 class OancSnippetsDataset(Dataset):

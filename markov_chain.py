@@ -5,8 +5,11 @@ import json
 import random
 
 from bitlist import bitlist
+import torch
 
 from consts import *
+import models
+import text_nn_utils
 
 PrefixInfo = dict[str, dict[str, int]]
 
@@ -230,6 +233,54 @@ def markov_chain_compress(text: str, prefix_len=4) -> bytes:
     return bits.to_bytes()
 
 
+def general_compress(text: str, char_predictor: CharPredictor, prefix_len=4) -> bytes:
+    # Clean up the text.
+    text = text.replace("\n", " ").replace("\t", " ").lower()
+    text = "".join([c for c in text if c in OUT_CHARS])
+    while "  " in text:
+        text = text.replace("  ", " ")
+
+    bits = bitlist(length=0)
+    current_prefix = ""
+    for c in text:
+        # If the character isn't one of the ones we use, ignore it.
+        if not c in OUT_CHARS:
+            continue
+
+        predicted_chars = char_predictor.predict_char(text=current_prefix)
+        found_in_freqs = False
+        if predicted_chars is not None:
+            if c == predicted_chars[0]:
+                bits += bitlist("1")
+                found_in_freqs = True
+            elif c == predicted_chars[1]:
+                bits += bitlist("01")
+                found_in_freqs = True
+
+        # If we couldn't use the frequencies, specify the character.
+        if not found_in_freqs:
+            char_num = OUT_CHARS.find(c)
+            if char_num == -1:  # Should never happen.
+                continue
+            letter_bits = bitlist(char_num, 5)
+            bits += bitlist("00")
+            bits += letter_bits
+
+        # Update the current prefix.
+        current_prefix = current_prefix + c
+        while len(current_prefix) > prefix_len:
+            current_prefix = current_prefix[1:]
+
+    # Pad the bits so they make up a whole number of bytes.
+    num_bits = len(bits) + PADDING_HEADER_LENGTH
+    padding_needed = 8 - (num_bits % 8)
+    padding = bitlist(0, length=padding_needed)
+    padding_header = bitlist(padding_needed, length=PADDING_HEADER_LENGTH)
+    bits = padding_header + bits + padding
+
+    return bits.to_bytes()
+
+
 # Decompress the given bytes using a markov chain.
 def markov_chain_decompress(msg: bytes, prefix_len=4) -> str | None:
     prefix_info = get_prefix_info()
@@ -316,21 +367,119 @@ def markov_chain_decompress(msg: bytes, prefix_len=4) -> str | None:
     return "".join(result)
 
 
-def test_compress():
-    text = (
-        "Polands war-torn and almost incomprehensibly fractured history plays "
-        "out like an epic novel — occasionally triumphant, frequently sad and tragic."
-        " Over a millennium, Poland evolved from a huge and imposing, economically po"
-        "werful kingdom to a partitioned nation that ceased to exist on world maps fo"
-        "r over 120 years, and finally to a people and land at the center of the 20th"
-        " centurys greatest wars and most horrific human tragedies. But Poland has su"
-        "rvived, with its culture, language and most of its territory intact, and tod"
-        "ay Poles look forward with optimism to taking their place at the forefront o"
-        "f the new, post-Communist Central Europe."
-    )
+def general_decompress(
+    msg: bytes, char_predictor: CharPredictor, prefix_len=4
+) -> str | None:
+    # prefix_info = get_prefix_info()
 
-    compressed = markov_chain_compress(text=text)
-    num_chars = len(text)
+    # Remove the padding.
+    bits = bitlist(msg)
+    padding_header, bits = bits[:PADDING_HEADER_LENGTH], bits[PADDING_HEADER_LENGTH:]
+    padding_len = int(padding_header)
+    bits = bits[:-padding_len]  # type: ignore
+    bits = cast(bitlist, bits)
+
+    current_prefix = ""
+    result = list[str]()
+    b_iter = iter(bits)
+    try:
+        while True:
+            # Read one character.
+            b = next(b_iter)
+            b = cast(int, b)
+
+            # # Get the frequency information, if any.
+            # if len(current_prefix) == prefix_len:
+            #     freqs = prefix_info.get(current_prefix, None)
+            # else:
+            #     freqs = None
+
+            # Get the predicted next chars.
+            predicted_chars = char_predictor.predict_char(text=current_prefix)
+
+            # The next character is the most frequenct character.
+            next_char = None
+            if b == 1:
+                # print("First char")
+                # if freqs is None:
+                #     # We don't have the frequency information!
+                #     print("No frequency!")
+                #     return None
+                # chars_in_order = get_chars_sorted_by_frequency_descending(freqs=freqs)
+                if predicted_chars is None:
+                    return None
+                if len(predicted_chars) <= 0:
+                    return None
+                next_char = predicted_chars[0]
+            elif b == 0:
+                b2 = next(b_iter)
+                if b2 == 1:
+                    # print("Second char")
+                    # if freqs is None:
+                    #     print("No frequency!")
+                    #     # We don't have the frequency information!
+                    #     return None
+                    # chars_in_order = get_chars_sorted_by_frequency_descending(
+                    #     freqs=freqs
+                    # )
+
+                    if predicted_chars is None:
+                        return None
+                    if len(predicted_chars) <= 1:
+                        # There is no second-most-frequent character!
+                        print("No second-most-frequent character!")
+                        return None
+                    next_char = predicted_chars[1]
+                elif b2 == 0:
+                    # Read the character from the next five bits.
+                    bs = (
+                        next(b_iter),
+                        next(b_iter),
+                        next(b_iter),
+                        next(b_iter),
+                        next(b_iter),
+                    )
+                    bs = cast(tuple[int, ...], bs)
+                    bs = bitlist(bs)
+                    char_index = int(bs)
+                    try:
+                        next_char = OUT_CHARS[char_index]
+                    except IndexError:
+                        print(f"Index error. i={char_index}")
+                        return None
+
+            if next_char is None:
+                print("No character found.")
+                return None
+
+            # Add this character to the result.
+            result.append(next_char)
+
+            # Update the prefix.
+            current_prefix = current_prefix + next_char
+            while len(current_prefix) > prefix_len:
+                current_prefix = current_prefix[1:]
+    except StopIteration:
+        pass
+    return "".join(result)
+
+
+TEXT = (
+    "Polands war-torn and almost incomprehensibly fractured history plays "
+    "out like an epic novel — occasionally triumphant, frequently sad and tragic."
+    " Over a millennium, Poland evolved from a huge and imposing, economically po"
+    "werful kingdom to a partitioned nation that ceased to exist on world maps fo"
+    "r over 120 years, and finally to a people and land at the center of the 20th"
+    " centurys greatest wars and most horrific human tragedies. But Poland has su"
+    "rvived, with its culture, language and most of its territory intact, and tod"
+    "ay Poles look forward with optimism to taking their place at the forefront o"
+    "f the new, post-Communist Central Europe."
+)
+
+
+def test_compress():
+    compressed = markov_chain_compress(text=TEXT)
+    num_chars = len(TEXT)
     num_bytes = len(compressed)
     print(f"{num_chars} chars.")
     print(f"{num_bytes} bytes.")
@@ -343,6 +492,97 @@ def test_compress():
     print("")
     print("Decompressed:")
     print(decompressed)
+
+
+def test_general_compress(predictor: CharPredictor):
+    prefix_len = 4
+    # predictor = FixedLengthPredixMarkovPredictor(
+    #     prefix_info=get_prefix_info(), prefix_len=prefix_len
+    # )
+    compressed = general_compress(
+        text=TEXT, char_predictor=predictor, prefix_len=prefix_len
+    )
+    num_chars = len(TEXT)
+    num_bytes = len(compressed)
+    print(f"{num_chars} chars.")
+    print(f"{num_bytes} bytes.")
+    bits_per_char = num_bytes * 8 / num_chars
+    print(f"{bits_per_char:.02f} bits per char.")
+    print("Compressed:")
+    print(compressed)
+
+    decompressed = general_decompress(
+        msg=compressed, char_predictor=predictor, prefix_len=prefix_len
+    )
+    print("")
+    print("Decompressed:")
+    print(decompressed)
+
+
+# Test compression using a Markov-chain based predictor.
+def test_markov_compress():
+    prefix_len = 4
+    test_general_compress(
+        predictor=FixedLengthPredixMarkovPredictor(
+            prefix_info=get_prefix_info(), prefix_len=prefix_len
+        )
+    )
+
+
+# A char-predictor that uses a Pytorch model.
+class ModelPredictor(CharPredictor):
+    def __init__(self, model, prefix_len: int, eps=1e-8):
+        self.model = model
+        self.prefix_len = prefix_len
+        self.eps = eps
+
+    def predict_char(self, text: str) -> list[str] | None:
+        if len(text) < self.prefix_len:
+            padding = EMPTY_CHAR * (self.prefix_len - len(text))
+            text = padding + text
+        elif len(text) > self.prefix_len:
+            text = text[-self.prefix_len :]
+
+        # Turn the text into an array of one-hot vectors.
+        in_array = text_nn_utils.snippet_to_array(snippet=text)
+
+        # Unsqueeze the batch dimension.
+        in_array = torch.unsqueeze(in_array, dim=0)
+
+        predictions = self.model(in_array)
+        predictions = torch.squeeze(predictions, 0)
+
+
+        char_to_score = dict[str, float]()
+        for i, char in enumerate(OUT_CHARS):
+            score = predictions[i].item()
+            char_to_score[char] = score
+
+        # Make sure that no two scores are too close.
+        # If they are, results might be nondeterministic.
+        all_scores = list(char_to_score.values())
+        all_scores.sort()
+        for prev_score, score in zip(all_scores[:-1], all_scores[1:]):
+            if abs(score - prev_score) < self.eps:
+                return None
+
+        low_score = min(char_to_score.values()) - 100
+
+        chars = list(OUT_CHARS)
+        chars.sort(key=lambda c: char_to_score.get(c, low_score), reverse=True)
+        return chars
+
+
+# Test compression using an NN.
+def test_nn_compress():
+    model = models.SimpleLetterModel()
+    filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
+    model.load_state_dict(torch.load(filepath))
+    model.eval()
+
+    prefix_len = 4
+    predictor = ModelPredictor(model=model, prefix_len=prefix_len)
+    test_general_compress(predictor=predictor)
 
 
 # Return the snippets contained in the given text.
@@ -419,7 +659,9 @@ def make_snippets_lists():
 def main():
     # make_prefix_info()
     # markov_make_text()
-    test_compress()
+    # test_compress()
+    # test_markov_compress()
+    test_nn_compress()
     # make_snippets_lists()
 
 

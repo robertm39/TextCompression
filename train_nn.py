@@ -86,11 +86,11 @@ def train(
         torch.save(model.state_dict(), after_epoch_filepath)
 
         mean_loss = np.average(np.array(losses))
-        print(f"loss: {mean_loss:>7f} [{(epoch+1):>5}]/{num_epochs:>5}")
+        print(f"Average loss: {mean_loss:>7f} [{(epoch+1):>5}]/{num_epochs:>5}")
         print(f"Took {after-before:.02f} seconds for {num_batches} batches,")
         print(f"for {(after-before)/num_batches:.04f} seconds per batch.")
         print("")
-    
+
     final_filename = f"2_Final.model"
     final_filepath = os.path.join(save_dir, final_filename)
     torch.save(model.state_dict(), final_filepath)
@@ -103,7 +103,7 @@ def do_train():
     # input_data, output_data = get_data()
     # dataset = datasets.OancSnippetsDataset(snippets_dir=r"Datasets\Oanc_Snippets_Len5")
     dataset = datasets.OancBatchedSnippetsDataset(
-        snippets_dir=r"Datasets\Oanc_Snippets_Len5"
+        snippets_dir=r"Datasets\Oanc_Snippets_Len11"
     )
 
     # model = models.PlainNn().to(device)
@@ -115,10 +115,10 @@ def do_train():
         model.parameters(), lr=1e-1, momentum=0.9
     )  # , momentum=0.3)
 
-    num_epochs = 1
+    num_epochs = 10
     print_interval = 1
     save_interval = 25
-    save_dir = r"Model_Saves\Fully_Connected"
+    save_dir = r"Model_Saves\Fully_Connected_2"
 
     # for _ in range(num_epochs):
     train(
@@ -133,8 +133,33 @@ def do_train():
     )
 
 
+# Save the dataset as .pt files for faster(?) loading.
+def save_dataset_as_tensors():
+    dataset = datasets.OancBatchedSnippetsDataset(
+        snippets_dir=r"Datasets\Oanc_Snippets_Len11"
+    )
+
+    out_dir = r"Datasets\Oanc_Len11_Tensors"
+    batch_input_template = "batch_{}_input.pt"
+    batch_label_template = "batch_{}_label.pt"
+
+    dataloader = DataLoader(
+        dataset=dataset, batch_size=None, shuffle=True, num_workers=14
+    )
+    for batch_num, (x, y) in enumerate(dataloader):
+        print(f"Saving batch {batch_num}.")
+        batch_input_filename = batch_input_template.format(batch_num)
+        batch_input_filepath = os.path.join(out_dir, batch_input_filename)
+        torch.save(x, batch_input_filepath)
+
+        batch_label_filename = batch_label_template.format(batch_num)
+        batch_label_filepath = os.path.join(out_dir, batch_label_filename)
+        torch.save(y, batch_label_filepath)
+
+
 def main():
-    do_train()
+    # do_train()
+    save_dataset_as_tensors()
 
 
 if __name__ == "__main__":
