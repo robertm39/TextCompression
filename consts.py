@@ -10,3 +10,5 @@ OUT_CHARS = ALPHABET + " "
 # SNIPPETS_PER_FILE = 1024 * 1024
 SNIPPETS_PER_FILE = 1024 * 128
 EMPTY_CHAR = "~"
+
+CHARS_BY_FREQUENCY = " etaoinshrdlucmfwygpbvkqjxz"

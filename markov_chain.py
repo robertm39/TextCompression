@@ -532,13 +532,13 @@ def test_markov_compress():
 # A char-predictor that uses a Pytorch model.
 class ModelPredictor(CharPredictor):
     def __init__(self, model, prefix_len: int, eps=1e-8):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # device = "cuda" if torch.cuda.is_available() else "cpu"
         # self.model = model.to(device)
         self.model = model
         self.prefix_len = prefix_len
         self.eps = eps
 
-    def predict_char(self, text: str) -> list[str] | None:
+    def predict_char(self, text: str) -> list[str]:
         if len(text) < self.prefix_len:
             padding = EMPTY_CHAR * (self.prefix_len - len(text))
             text = padding + text
@@ -567,7 +567,8 @@ class ModelPredictor(CharPredictor):
         all_scores.sort()
         for prev_score, score in zip(all_scores[:-1], all_scores[1:]):
             if abs(score - prev_score) < self.eps:
-                return None
+                # return None
+                return list(CHARS_BY_FREQUENCY)
 
         low_score = min(char_to_score.values()) - 100
 
@@ -588,10 +589,21 @@ def test_nn_compress():
     predictor = ModelPredictor(model=model, prefix_len=prefix_len)
     test_general_compress(predictor=predictor)
 
+
 def add_token(tok_to_count: dict[str, int], tok: str) -> None:
     if not tok in tok_to_count:
         tok_to_count[tok] = 0
     tok_to_count[tok] += 1
+
+
+def add_tokens(
+    tok_to_count: dict[str, int], add_tok_to_count: Mapping[str, int]
+) -> None:
+    for tok, count in add_tok_to_count.items():
+        if not tok in tok_to_count:
+            tok_to_count[tok] = 0
+        tok_to_count[tok] += count
+
 
 # Return the token frequencies in the given text for the given predictor.
 def get_token_frequencies(
@@ -607,6 +619,7 @@ def get_token_frequencies(
         is_first = False
         token = None
         if pred_chars is None:
+            print("No prediction!!!")
             token = c
         elif c in pred_chars:
             pred_index = pred_chars.index(c)
@@ -644,8 +657,7 @@ def get_token_frequencies(
             current_prefix = current_prefix[-prefix_len:]
         # while len(current_prefix) > prefix_len:
         #     current_prefix = current_prefix[1:]
-        
-    
+
     if num_first > 0:
         max_first_token = len(MULTIPLE_FIRST_TOKENS) - 1
         first_tokens = list[str]()
@@ -688,7 +700,6 @@ def determine_token_frequencies():
     for filename in os.listdir(texts_dir):
         file_num = int(filename.split("_")[0])
 
-
         out_filepath = out_filepath_template.format(file_num)
         if out_filepath in already_made_files:
             continue
@@ -718,6 +729,21 @@ def determine_token_frequencies():
     # out_filename = "token_counts.json"
     # with open(out_filename, "w") as file:
     #     json.dump(tok_to_count, file)
+
+
+def combine_token_counts():
+    freqs_dir = r"Token_Counts"
+    tok_to_count = dict[str, int]()
+
+    for filename in os.listdir(freqs_dir):
+        filepath = os.path.join(freqs_dir, filename)
+        with open(filepath) as file:
+            file_tok_to_count = json.load(file)
+        add_tokens(tok_to_count=tok_to_count, add_tok_to_count=file_tok_to_count)
+
+    out_filename = "token_counts.json"
+    with open(out_filename, "w") as file:
+        json.dump(tok_to_count, file)
 
 
 # Return the snippets contained in the given text.
@@ -799,6 +825,7 @@ def main():
     # test_nn_compress()
     # make_snippets_lists()
     determine_token_frequencies()
+    # combine_token_counts()
 
 
 if __name__ == "__main__":

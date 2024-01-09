@@ -1,6 +1,7 @@
 import unittest
 
 import markov_chain
+import huffman_coding
 
 
 class MarkovChainTest(unittest.TestCase):
@@ -17,6 +18,20 @@ class MarkovChainTest(unittest.TestCase):
             "HUB": {"T": 1},
         }
         self.assertDictEqual(p1, exp_p1)
+
+class HuffmanCodingTest(unittest.TestCase):
+    def setUp(self):
+        self.maxDiff = None
+
+    def test_huffman_tree(self):
+        tok_to_count = {"A": 100, "B": 50, "C": 30, "D": 25}
+        tree = huffman_coding.get_huffman_tree(tok_to_count=tok_to_count)
+        msg = "ADBCBADCB"
+        bits = tree.encode(msg)
+        self.assertIsNotNone(bits)
+        assert bits is not None
+        decoded = tree.decode(bits)
+        self.assertEqual(decoded, msg)
     
 if __name__ == "__main__":
     unittest.main()
