@@ -102,9 +102,10 @@ def train(
 def do_train():
     # input_data, output_data = get_data()
     # dataset = datasets.OancSnippetsDataset(snippets_dir=r"Datasets\Oanc_Snippets_Len5")
-    dataset = datasets.OancBatchedSnippetsDataset(
-        snippets_dir=r"Datasets\Oanc_Snippets_Len11"
-    )
+    # dataset = datasets.OancBatchedSnippetsDataset(
+    #     snippets_dir=r"Datasets\Oanc_Snippets_Len11"
+    # )
+    dataset = datasets.OancBatchedDataset(dataset_dir=r"Datasets\Oanc_Len11_Tensors")
 
     # model = models.PlainNn().to(device)
     # model = models.ComplexNn().to(device)
@@ -112,13 +113,13 @@ def do_train():
     model = models.SimpleLetterModel().to(device)
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.SGD(
-        model.parameters(), lr=1e-1, momentum=0.9
+        model.parameters(), lr=1e-2, momentum=0.9
     )  # , momentum=0.3)
 
-    num_epochs = 10
+    num_epochs = 100000
     print_interval = 1
     save_interval = 25
-    save_dir = r"Model_Saves\Fully_Connected_2"
+    save_dir = r"Model_Saves\Fully_Connected_4"
 
     # for _ in range(num_epochs):
     train(
@@ -150,16 +151,18 @@ def save_dataset_as_tensors():
         print(f"Saving batch {batch_num}.")
         batch_input_filename = batch_input_template.format(batch_num)
         batch_input_filepath = os.path.join(out_dir, batch_input_filename)
+        x = x.detach().clone()
         torch.save(x, batch_input_filepath)
 
         batch_label_filename = batch_label_template.format(batch_num)
         batch_label_filepath = os.path.join(out_dir, batch_label_filename)
+        y = y.detach().clone()
         torch.save(y, batch_label_filepath)
 
 
 def main():
-    # do_train()
-    save_dataset_as_tensors()
+    do_train()
+    # save_dataset_as_tensors()
 
 
 if __name__ == "__main__":

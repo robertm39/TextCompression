@@ -532,6 +532,8 @@ def test_markov_compress():
 # A char-predictor that uses a Pytorch model.
 class ModelPredictor(CharPredictor):
     def __init__(self, model, prefix_len: int, eps=1e-8):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # self.model = model.to(device)
         self.model = model
         self.prefix_len = prefix_len
         self.eps = eps
@@ -549,9 +551,10 @@ class ModelPredictor(CharPredictor):
         # Unsqueeze the batch dimension.
         in_array = torch.unsqueeze(in_array, dim=0)
 
+        # device = "cuda" if torch.cuda.is_available() else "cpu"
+        # in_array = in_array.to(device)
         predictions = self.model(in_array)
         predictions = torch.squeeze(predictions, 0)
-
 
         char_to_score = dict[str, float]()
         for i, char in enumerate(OUT_CHARS):
@@ -576,13 +579,145 @@ class ModelPredictor(CharPredictor):
 # Test compression using an NN.
 def test_nn_compress():
     model = models.SimpleLetterModel()
-    filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
+    # filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
+    filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
     model.load_state_dict(torch.load(filepath))
     model.eval()
 
-    prefix_len = 4
+    prefix_len = 10
     predictor = ModelPredictor(model=model, prefix_len=prefix_len)
     test_general_compress(predictor=predictor)
+
+def add_token(tok_to_count: dict[str, int], tok: str) -> None:
+    if not tok in tok_to_count:
+        tok_to_count[tok] = 0
+    tok_to_count[tok] += 1
+
+# Return the token frequencies in the given text for the given predictor.
+def get_token_frequencies(
+    predictor: CharPredictor, text: str, prefix_len: int
+) -> dict[str, int]:
+    result = dict[str, int]()
+
+    current_prefix = ""
+    num_first = 0
+    for c in text:
+        # Determine what token to use.
+        pred_chars = predictor.predict_char(current_prefix)
+        is_first = False
+        token = None
+        if pred_chars is None:
+            token = c
+        elif c in pred_chars:
+            pred_index = pred_chars.index(c)
+            if pred_index == 0:
+                num_first += 1
+                is_first = True
+            else:
+                token = PRED_CHAR_TOKENS[pred_chars.index(c)]
+        else:
+            token = c
+
+        # Add the token.
+        if not is_first:
+            if num_first > 0:
+                max_first_token = len(MULTIPLE_FIRST_TOKENS) - 1
+                first_tokens = list[str]()
+                while num_first > max_first_token:
+                    first_tokens.append(MULTIPLE_FIRST_TOKENS[-1])
+                    num_first -= max_first_token
+                if num_first > 0:
+                    first_tokens.append(MULTIPLE_FIRST_TOKENS[num_first])
+                # first_token = MULTIPLE_FIRST_TOKENS[num_first]
+                for tok in first_tokens:
+                    add_token(tok_to_count=result, tok=tok)
+                num_first = 0
+
+            if token is not None:
+                if not token in result:
+                    result[token] = 0
+                result[token] += 1
+
+        # Update the prefix.
+        current_prefix = current_prefix + c
+        if len(current_prefix) > prefix_len:
+            current_prefix = current_prefix[-prefix_len:]
+        # while len(current_prefix) > prefix_len:
+        #     current_prefix = current_prefix[1:]
+        
+    
+    if num_first > 0:
+        max_first_token = len(MULTIPLE_FIRST_TOKENS) - 1
+        first_tokens = list[str]()
+        while num_first > max_first_token:
+            first_tokens.append(MULTIPLE_FIRST_TOKENS[-1])
+            num_first -= max_first_token
+        if num_first > 0:
+            first_tokens.append(MULTIPLE_FIRST_TOKENS[num_first])
+        # first_token = MULTIPLE_FIRST_TOKENS[num_first]
+        for tok in first_tokens:
+            add_token(tok_to_count=result, tok=tok)
+        num_first = 0
+
+    return result
+
+
+# Determine the frequencies of the different tokens we will use.
+def determine_token_frequencies():
+    model = models.SimpleLetterModel()
+    filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
+    model.load_state_dict(torch.load(filepath))
+    model.eval()
+
+    prefix_len = 10
+    predictor = ModelPredictor(model=model, prefix_len=prefix_len)
+
+    # # A for the 1st predicted char, B for the second, etc.
+    # pred_char_tokens = ALPHABET.upper() + "_"
+    # tok_to_count = dict[str, int]()
+
+    out_dir = r"Token_Counts"
+    # Determine which files we've already made.
+    already_made_files = set[str]()
+    for filename in os.listdir(out_dir):
+        already_made_files.add(os.path.join(out_dir, filename))
+
+    out_template = "{}_token_counts.json"
+    out_filepath_template = os.path.join(out_dir, out_template)
+    texts_dir = r"Corpora\OANC_GrAF\OANC_Text_Files"
+    for filename in os.listdir(texts_dir):
+        file_num = int(filename.split("_")[0])
+
+
+        out_filepath = out_filepath_template.format(file_num)
+        if out_filepath in already_made_files:
+            continue
+
+        print(filename)
+        # Get the text of the file.
+        filepath = os.path.join(texts_dir, filename)
+        with open(filepath, encoding="utf8") as file:
+            text = file.read()
+        text = clean_up_text(text)
+
+        # Determine the token-frequencies in the file.
+        file_tok_to_count = get_token_frequencies(
+            predictor=predictor, text=text, prefix_len=prefix_len
+        )
+
+        # Save the frequencies to file.
+        with open(out_filepath, "w") as file:
+            json.dump(file_tok_to_count, file)
+
+        # # Update the overall frequencies.
+        # for tok, count in file_tok_to_count.items():
+        #     if not tok in tok_to_count:
+        #         tok_to_count[tok] = 0
+        #     tok_to_count[tok] += count
+
+    # out_filename = "token_counts.json"
+    # with open(out_filename, "w") as file:
+    #     json.dump(tok_to_count, file)
 
 
 # Return the snippets contained in the given text.
@@ -661,8 +796,9 @@ def main():
     # markov_make_text()
     # test_compress()
     # test_markov_compress()
-    test_nn_compress()
+    # test_nn_compress()
     # make_snippets_lists()
+    determine_token_frequencies()
 
 
 if __name__ == "__main__":

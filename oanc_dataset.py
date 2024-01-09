@@ -6,6 +6,7 @@ from consts import *
 
 from text_nn_utils import char_to_onehot, snippet_to_array
 
+
 # A dataset of snippets followed by the char after them.
 class OancSnippetsDataset(Dataset):
     def __init__(self, snippets_dir, transform=None, target_transform=None):
@@ -93,3 +94,34 @@ class OancBatchedSnippetsDataset(Dataset):
 
         # prefix, char = snippet[:-1], snippet[-1]
         # return snippet_to_array(prefix), char_to_onehot(char)
+
+
+# A dataset with batches of OANC snippets, already saved in tensor form.
+class OancBatchedDataset(Dataset):
+    def __init__(self, dataset_dir, transform=None, target_transform=None):
+        self.dataset_dir = dataset_dir
+        self._input_template = "batch_{}_input.pt"
+        self._label_template = "batch_{}_label.pt"
+        self.transform = transform
+        self.target_transform = target_transform
+
+        # Determine the number of batches.
+        num_files = 0
+        for _ in os.listdir(self.dataset_dir):
+            num_files += 1
+
+        self._num_batches = num_files // 2
+
+    def __len__(self) -> int:
+        return self._num_batches
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        input_filename = self._input_template.format(idx)
+        input_filepath = os.path.join(self.dataset_dir, input_filename)
+
+        label_filename = self._label_template.format(idx)
+        label_filepath = os.path.join(self.dataset_dir, label_filename)
+
+        inputs = torch.load(input_filepath).detach().clone()
+        labels = torch.load(label_filepath).detach().clone()
+        return inputs, labels
