@@ -824,8 +824,8 @@ def main():
     # test_markov_compress()
     # test_nn_compress()
     # make_snippets_lists()
-    determine_token_frequencies()
-    # combine_token_counts()
+    # determine_token_frequencies()
+    combine_token_counts()
 
 
 if __name__ == "__main__":
