@@ -118,15 +118,17 @@ def do_train():
     # model = models.PathComplexNn().to(device)
     # model = models.SimpleLetterModel().to(device)
     model = models.ConvLetterModel().to(device)
+    model.train()
+    model.init_model()
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.SGD(
         model.parameters(), lr=1e-2, momentum=0.99
     )  # , momentum=0.3)
 
     num_epochs = 100000
-    print_interval = 100
-    save_interval = 2500
-    save_dir = r"Model_Saves\Conv_2"
+    print_interval = 500
+    save_interval = 10000
+    save_dir = r"Model_Saves\Conv_5"
 
     # for _ in range(num_epochs):
     train(
@@ -171,7 +173,7 @@ def split_up_batches():
     in_dir = r"Datasets\Oanc_Len11_Tensors_3"
     out_dir = r"Datasets\Oanc_Len11_Tensors"
 
-    num_splits_per_batch = 1024
+    num_splits_per_batch = 128
 
     num_in_batches = 632
     # num_out_batches = 632 * num_splits_per_batch
@@ -229,10 +231,29 @@ def split_up_batches():
             out_batch_num += 1
 
 
+def get_num(filename: str) -> int:
+    return int(filename.split("_")[1])
+
+
+def check_files():
+    in_dir = r"Datasets\Oanc_Len11_Tensors"
+    out_file = "data_files.txt"
+    names = list[str]()
+    for filename in os.listdir(in_dir):
+        # print(filename)
+        # file.write(f"{filename}\n")
+        names.append(filename)
+    names.sort(key=lambda n: get_num(n))
+    with open(out_file, "w") as file:
+        for name in names:
+            file.write(f"{name}\n")
+
+
 def main():
-    # do_train()
+    do_train()
     # save_dataset_as_tensors()
-    split_up_batches()
+    # split_up_batches()
+    # check_files()
 
 
 if __name__ == "__main__":
