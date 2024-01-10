@@ -10,6 +10,7 @@ import torch
 from consts import *
 import models
 import text_nn_utils
+import huffman_coding
 
 PrefixInfo = dict[str, dict[str, int]]
 
@@ -175,6 +176,27 @@ class FixedLengthPredixMarkovPredictor(CharPredictor):
 PADDING_HEADER_LENGTH = 3
 
 
+# Return the given bits, with a padding header and padding to be a whole number of bytes.
+def get_padded(bits: bitlist) -> bitlist:
+    # Pad the bits so they make up a whole number of bytes.
+    num_bits = len(bits) + PADDING_HEADER_LENGTH
+    padding_needed = 8 - (num_bits % 8)
+    padding = bitlist(0, length=padding_needed)
+    padding_header = bitlist(padding_needed, length=PADDING_HEADER_LENGTH)
+    bits = padding_header + bits + padding
+    return bits
+
+
+# Return the given bits, with the padding header and padding removed.
+def get_unpadded(bits: bitlist) -> bitlist:
+    # Remove the padding.
+    padding_header, bits = bits[:PADDING_HEADER_LENGTH], bits[PADDING_HEADER_LENGTH:]  # type: ignore
+    padding_len = int(padding_header)
+    bits = bits[:-padding_len]  # type: ignore
+    # bits = cast(bitlist, bits)
+    return bits
+
+
 # Compress the given text using a markov chain.
 def markov_chain_compress(text: str, prefix_len=4) -> bytes:
     prefix_info = get_prefix_info()
@@ -223,12 +245,13 @@ def markov_chain_compress(text: str, prefix_len=4) -> bytes:
         while len(current_prefix) > prefix_len:
             current_prefix = current_prefix[1:]
 
-    # Pad the bits so they make up a whole number of bytes.
-    num_bits = len(bits) + PADDING_HEADER_LENGTH
-    padding_needed = 8 - (num_bits % 8)
-    padding = bitlist(0, length=padding_needed)
-    padding_header = bitlist(padding_needed, length=PADDING_HEADER_LENGTH)
-    bits = padding_header + bits + padding
+    # # Pad the bits so they make up a whole number of bytes.
+    # num_bits = len(bits) + PADDING_HEADER_LENGTH
+    # padding_needed = 8 - (num_bits % 8)
+    # padding = bitlist(0, length=padding_needed)
+    # padding_header = bitlist(padding_needed, length=PADDING_HEADER_LENGTH)
+    # bits = padding_header + bits + padding
+    bits = get_padded(bits=bits)
 
     return bits.to_bytes()
 
@@ -804,17 +827,209 @@ def make_snippets_lists():
     # flush_snippets(force=True)
 
 
-# def shuffle_snippets_lists():
-#     snippet_len = 5
-#     in_dir = rf"Datasets\Oanc_Snippets_Len{snippet_len}"
-#     # if not os.path.exists(in_dir):
-#     #     os.mkdir(in_dir)
-#     in_template = os.path.join(in_dir, "snippets_{}.txt")
+# Convert the given message into compression tokens.
+def get_compression_tokens(
+    msg: str, predictor: CharPredictor, prefix_len: int
+) -> list[str]:
+    result = list[str]()
 
-#     out_dir = rf"Datasets\Oanc_Snippets_Len{snippet_len}_Shuffled"
-#     if not os.path.exists(out_dir):
-#         os.mkdir(out_dir)
-#     out_template = os.path.join(out_dir, "snippets_{}.txt")
+    num_first = 0
+    current_prefix = ""
+    for c in msg:
+        pred_chars = predictor.predict_char(current_prefix)
+        if pred_chars is None:
+            raise ValueError()
+
+        # C is the first predicted character.
+        is_first = False
+        if c == pred_chars[0]:
+            num_first += 1
+            is_first = True
+
+        if not is_first:
+            # Add the pending first-char token.
+            if num_first > 0:
+                first_tokens = list[str]()
+                max_first_token = len(MULTIPLE_FIRST_TOKENS) - 1
+                while num_first > max_first_token:
+                    num_first -= max_first_token
+                    first_tokens.append(MULTIPLE_FIRST_TOKENS[-1])
+
+                if num_first > 0:
+                    first_tokens.append(MULTIPLE_FIRST_TOKENS[num_first])
+
+                result.extend(first_tokens)
+                num_first = 0
+
+            char_index = pred_chars.index(c)
+            token = PRED_CHAR_TOKENS[char_index]
+            result.append(token)
+
+        # Update the prefix.
+        current_prefix = current_prefix + c
+        if len(current_prefix) > prefix_len:
+            current_prefix = current_prefix[-prefix_len:]
+
+    # Add the final first-tokens, if any.
+    if num_first > 0:
+        first_tokens = list[str]()
+        max_first_token = len(MULTIPLE_FIRST_TOKENS) - 1
+        while num_first > max_first_token:
+            num_first -= max_first_token
+            first_tokens.append(MULTIPLE_FIRST_TOKENS[-1])
+
+        if num_first > 0:
+            first_tokens.append(MULTIPLE_FIRST_TOKENS[num_first])
+
+        result.extend(first_tokens)
+        num_first = 0
+
+    return result
+
+
+def get_huffman_tree() -> huffman_coding.HuffmanTree:
+    # Read the token count information.
+    tok_to_count_filename = r"token_counts.json"
+    with open(tok_to_count_filename) as file:
+        tok_to_count = cast(dict[str, int], json.load(file))
+
+    # Get the huffman tree.
+    huffman_tree = huffman_coding.get_huffman_tree(tok_to_count=tok_to_count)
+    return huffman_tree
+
+
+# Encode the given message using a character predictor and huffman-tree compression.
+def huffman_encode(msg: str, predictor: CharPredictor, prefix_len: int) -> bytes:
+    # # Read the token count information.
+    # tok_to_count_filename = r"token_counts.json"
+    # with open(tok_to_count_filename) as file:
+    #     tok_to_count = cast(dict[str, int], json.load(file))
+
+    # # Get the huffman tree.
+    # huffman_tree = huffman_coding.get_huffman_tree(tok_to_count=tok_to_count)
+    huffman_tree = get_huffman_tree()
+
+    # # Print the number of bits for each token.
+    # for token in tok_to_count:
+    #     print(f"{token}: {len(huffman_tree.get_bits(tok=token))}")  # type: ignore
+
+    # Turn the message into a list of tokens.
+    tokens = get_compression_tokens(msg=msg, predictor=predictor, prefix_len=prefix_len)
+    tokens = "".join(tokens)
+
+    # # TODO compress the tokens and return the result.
+    bits = huffman_tree.encode(toks=tokens)
+    if bits is None:
+        raise ValueError()
+
+    bits = get_padded(bits)
+    return bits.to_bytes()
+
+
+# Manages a text and the current prefix.
+class TextPrefixManager:
+    def __init__(self, prefix_len: int) -> None:
+        self.prefix_len = prefix_len
+        # self.current_prefix = ""
+        self._text = list[str]()
+
+    # Add one character to the text.
+    def add_str(self, s: str) -> None:
+        # if len(char) > 1:
+        #     raise ValueError()
+        self._text.extend(s)
+
+    @property
+    def text(self) -> str:
+        return "".join(self._text)
+
+    @property
+    def current_prefix(self) -> str:
+        return "".join(self._text[-self.prefix_len :])
+
+
+# Decode the given message using a character predictor and huffman-tree decompression.
+def huffman_decode(encoded: bytes, predictor: CharPredictor, prefix_len: int) -> str:
+    huffman_tree = get_huffman_tree()
+
+    # Get the bits and remove the padding.
+    bits = bitlist(encoded)
+    bits = get_unpadded(bits=bits)
+
+    # Get the compression tokens.
+    toks = huffman_tree.decode(bits=bits)
+    if toks is None:
+        raise ValueError()
+
+    text_mng = TextPrefixManager(prefix_len=prefix_len)
+    for tok in toks:
+        if tok in MULTIPLE_FIRST_TOKENS:
+            num_toks = int(tok)
+            for _ in range(num_toks):
+                pred_chars = predictor.predict_char(text=text_mng.current_prefix)
+                if pred_chars is None:
+                    raise ValueError()
+                text_mng.add_str(pred_chars[0])
+        else:
+            pred_chars = predictor.predict_char(text=text_mng.current_prefix)
+            if pred_chars is None:
+                raise ValueError()
+            char_index = PRED_CHAR_TOKENS.find(tok)
+            char = pred_chars[char_index]
+            text_mng.add_str(char)
+
+    return text_mng.text
+
+
+def test_huffman_encode():
+    msg = clean_up_text(TEXT)
+    model = models.SimpleLetterModel()
+    # filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
+    filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
+    model.load_state_dict(torch.load(filepath))
+    model.eval()
+    prefix_len = 10
+    predictor = ModelPredictor(model=model, prefix_len=prefix_len)
+
+    encoded = huffman_encode(msg=msg, predictor=predictor, prefix_len=prefix_len)
+    print(f"Text:\n{msg}")
+    print("")
+    print(f"Num chars: {len(TEXT)}")
+    print(f"Bits per char: {len(encoded) * 8 / len(msg):.02f}")
+    print(f"Encoded:\n{encoded}")
+    print("")
+
+    decoded = huffman_decode(
+        encoded=encoded, predictor=predictor, prefix_len=prefix_len
+    )
+    print(f"Same: {msg == decoded}")
+    print(f"Decoded:\n{decoded}")
+    # print(decoded)
+
+
+# Print the expected number of bits per character.
+def get_expected_bits_per_character():
+    # Read the token count information.
+    tok_to_count_filename = r"token_counts.json"
+    with open(tok_to_count_filename) as file:
+        tok_to_count = cast(dict[str, int], json.load(file))
+
+    # Get the huffman tree.
+    huffman_tree = huffman_coding.get_huffman_tree(tok_to_count=tok_to_count)
+
+    # Print the number of bits for each token.
+    total_num_bits = 0
+    total_num_chars = 0
+    for token, count in tok_to_count.items():
+        if token.isnumeric():
+            num_chars = int(token)
+        else:
+            num_chars = 1
+        total_num_bits += len(huffman_tree.get_bits(tok=token)) * count  # type: ignore
+        total_num_chars += num_chars * count
+
+    bits_per_char = total_num_bits / total_num_chars
+    print(f"Expected bits per char: {bits_per_char:.02f}")
 
 
 def main():
@@ -825,7 +1040,9 @@ def main():
     # test_nn_compress()
     # make_snippets_lists()
     # determine_token_frequencies()
-    combine_token_counts()
+    # combine_token_counts()
+    test_huffman_encode()
+    # get_expected_bits_per_character()
 
 
 if __name__ == "__main__":

@@ -68,6 +68,8 @@ class HuffmanTree:
             else:
                 current_node = current_node.right
 
+        if i >= len(bits):
+            return current_node.tok, bitlist(length=0)
         return current_node.tok, bits[i:]  # type: ignore
 
     # Encode the given message.
@@ -84,7 +86,7 @@ class HuffmanTree:
     def decode(self, bits: bitlist) -> str | None:
         result = list[str]()
         bits = bitlist(bits)
-        while bits:
+        while len(bits) > 0:
             r = self.get_tok(bits=bits)
             if r is None:
                 return None
