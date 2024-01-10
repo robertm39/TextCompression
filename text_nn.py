@@ -48,18 +48,14 @@ class SimpleLetterModel(nn.Module):
 
         l1 = self.layer_1(x)
         l1 = self.act_1(l1)
-        # print(f"x.shape: {x.shape}")
         x = torch.concat([x, l1], dim=1)
-        # print(f"x.shape: {x.shape}")
 
         l2 = self.layer_2(x)
         l2 = self.act_2(l2)
         x = torch.concat([x, l2], dim=1)
-        # print(f"x.shape: {x.shape}")
 
         l3 = self.layer_3(x)
         l3 = self.act_3(l3)
         x = torch.concat([x, l3], dim=1)
-        # print(f"x.shape: {x.shape}")
 
         return self.output(x)

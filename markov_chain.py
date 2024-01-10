@@ -599,14 +599,22 @@ class ModelPredictor(CharPredictor):
         chars.sort(key=lambda c: char_to_score.get(c, low_score), reverse=True)
         return chars
 
-
-# Test compression using an NN.
-def test_nn_compress():
+def get_model():
     model = models.SimpleLetterModel()
     # filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
     filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
     model.load_state_dict(torch.load(filepath))
     model.eval()
+    return model
+
+# Test compression using an NN.
+def test_nn_compress():
+    # model = models.SimpleLetterModel()
+    # # filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
+    # filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
+    # model.load_state_dict(torch.load(filepath))
+    # model.eval()
+    model = get_model()
 
     prefix_len = 10
     predictor = ModelPredictor(model=model, prefix_len=prefix_len)
@@ -699,10 +707,11 @@ def get_token_frequencies(
 
 # Determine the frequencies of the different tokens we will use.
 def determine_token_frequencies():
-    model = models.SimpleLetterModel()
-    filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
-    model.load_state_dict(torch.load(filepath))
-    model.eval()
+    # model = models.SimpleLetterModel()
+    # filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
+    # model.load_state_dict(torch.load(filepath))
+    # model.eval()
+    model = get_model()
 
     prefix_len = 10
     predictor = ModelPredictor(model=model, prefix_len=prefix_len)
@@ -983,11 +992,12 @@ def huffman_decode(encoded: bytes, predictor: CharPredictor, prefix_len: int) ->
 
 def test_huffman_encode():
     msg = clean_up_text(TEXT)
-    model = models.SimpleLetterModel()
-    # filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
-    filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
-    model.load_state_dict(torch.load(filepath))
-    model.eval()
+    # model = models.SimpleLetterModel()
+    # # filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
+    # filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
+    # model.load_state_dict(torch.load(filepath))
+    # model.eval()
+    model = get_model()
     prefix_len = 10
     predictor = ModelPredictor(model=model, prefix_len=prefix_len)
 
@@ -1004,7 +1014,6 @@ def test_huffman_encode():
     )
     print(f"Same: {msg == decoded}")
     print(f"Decoded:\n{decoded}")
-    # print(decoded)
 
 
 # Print the expected number of bits per character.

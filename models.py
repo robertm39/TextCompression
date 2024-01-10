@@ -1,1 +1,2 @@
 from text_nn import SimpleLetterModel
+from conv_nn import ConvLetterModel

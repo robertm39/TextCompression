@@ -1,3 +1,4 @@
+from typing import cast
 import os
 import time
 
@@ -50,6 +51,8 @@ def train(
         print(f"Epoch {epoch+1} out of {num_epochs}:")
         batch_num = 0
         before = time.time()
+
+        batches_losses = list[float]()
         for batch_num, (x, y) in enumerate(dataloader):
             # print(f"x.shape: {x.shape}")
             # print(f"y.shape: {y.shape}")
@@ -68,13 +71,16 @@ def train(
 
             loss = loss.item()  # , (batch_num + 1) * len(X)
             losses.append(loss)
+            batches_losses.append(loss)
 
             if (batch_num + 1) % print_interval == 0:
-                print(f"Batch {batch_num:>5} loss: {loss:>7f}")
+                mean_batch_loss = np.average(np.array(batches_losses))
+                batches_losses.clear()
+                print(f"Batch {batch_num+1:>5} average loss: {mean_batch_loss:>7f}")
 
             if (batch_num + 1) % save_interval == 0:
                 # Save the model.
-                during_epoch_filename = f"1_Epoch_{epoch}_0_During_{batch_num}.model"
+                during_epoch_filename = f"1_Epoch_{epoch}_0_During_{batch_num+1}.model"
                 during_epoch_filepath = os.path.join(save_dir, during_epoch_filename)
                 torch.save(model.state_dict(), during_epoch_filepath)
         after = time.time()
@@ -110,16 +116,17 @@ def do_train():
     # model = models.PlainNn().to(device)
     # model = models.ComplexNn().to(device)
     # model = models.PathComplexNn().to(device)
-    model = models.SimpleLetterModel().to(device)
+    # model = models.SimpleLetterModel().to(device)
+    model = models.ConvLetterModel().to(device)
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.SGD(
-        model.parameters(), lr=1e-2, momentum=0.9
+        model.parameters(), lr=1e-2, momentum=0.99
     )  # , momentum=0.3)
 
     num_epochs = 100000
-    print_interval = 1
-    save_interval = 25
-    save_dir = r"Model_Saves\Fully_Connected_4"
+    print_interval = 100
+    save_interval = 2500
+    save_dir = r"Model_Saves\Conv_2"
 
     # for _ in range(num_epochs):
     train(
@@ -160,9 +167,72 @@ def save_dataset_as_tensors():
         torch.save(y, batch_label_filepath)
 
 
+def split_up_batches():
+    in_dir = r"Datasets\Oanc_Len11_Tensors_3"
+    out_dir = r"Datasets\Oanc_Len11_Tensors"
+
+    num_splits_per_batch = 1024
+
+    num_in_batches = 632
+    # num_out_batches = 632 * num_splits_per_batch
+    out_batch_num = 0
+    for in_batch_num in range(num_in_batches):
+        print(f"Batch {in_batch_num}.")
+        in_batch_inputs_filename = f"batch_{in_batch_num}_input.pt"
+        in_batch_inputs_filepath = os.path.join(in_dir, in_batch_inputs_filename)
+        in_batch_inputs = cast(
+            torch.Tensor, torch.load(in_batch_inputs_filepath).detach().clone()
+        )
+
+        in_batch_labels_filename = f"batch_{in_batch_num}_label.pt"
+        in_batch_labels_filepath = os.path.join(in_dir, in_batch_labels_filename)
+        in_batch_labels = cast(
+            torch.Tensor, torch.load(in_batch_labels_filepath).detach().clone()
+        )
+
+        in_num_samples = in_batch_inputs.shape[0]
+        if in_num_samples % num_splits_per_batch != 0:
+            print(f"Batch {in_batch_num} not evenly divided: {in_num_samples} samples.")
+        out_num_samples = in_num_samples // num_splits_per_batch
+
+        # Split this batch into multiple batches.
+        for split_batch_num in range(num_splits_per_batch):
+            # Split up the inputs.
+            out_batch_inputs = in_batch_inputs[
+                split_batch_num
+                * out_num_samples : (split_batch_num + 1)
+                * out_num_samples,
+                :,
+                :,
+            ]
+            out_batch_inputs = out_batch_inputs.detach().clone()
+
+            # Save the inputs.
+            out_batch_inputs_filename = f"batch_{out_batch_num}_input.pt"
+            out_batch_inputs_filepath = os.path.join(out_dir, out_batch_inputs_filename)
+            torch.save(out_batch_inputs, out_batch_inputs_filepath)
+
+            # Split up the outputs.
+            out_batch_labels = in_batch_labels[
+                split_batch_num
+                * out_num_samples : (split_batch_num + 1)
+                * out_num_samples,
+                :,
+            ]
+            out_batch_labels = out_batch_labels.detach().clone()
+
+            # Save the outputs.
+            out_batch_labels_filename = f"batch_{out_batch_num}_label.pt"
+            out_batch_labels_filepath = os.path.join(out_dir, out_batch_labels_filename)
+            torch.save(out_batch_labels, out_batch_labels_filepath)
+
+            out_batch_num += 1
+
+
 def main():
-    do_train()
+    # do_train()
     # save_dataset_as_tensors()
+    split_up_batches()
 
 
 if __name__ == "__main__":
