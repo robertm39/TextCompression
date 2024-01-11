@@ -600,9 +600,12 @@ class ModelPredictor(CharPredictor):
         return chars
 
 def get_model():
-    model = models.SimpleLetterModel()
+    # model = models.SimpleLetterModel()
+    model = models.ConvLetterModel()
     # filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
-    filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
+    # filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
+    # filepath = r"Model_Saves\Conv_6\1_Epoch_2_1_After.model"
+    filepath = r"Model_Saves\Conv_7\1_Epoch_0_0_During_5000.model"
     model.load_state_dict(torch.load(filepath))
     model.eval()
     return model
@@ -1050,8 +1053,8 @@ def main():
     # make_snippets_lists()
     # determine_token_frequencies()
     # combine_token_counts()
-    test_huffman_encode()
-    # get_expected_bits_per_character()
+    # test_huffman_encode()
+    get_expected_bits_per_character()
 
 
 if __name__ == "__main__":

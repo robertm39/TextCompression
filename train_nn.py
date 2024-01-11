@@ -126,9 +126,9 @@ def do_train():
     )  # , momentum=0.3)
 
     num_epochs = 100000
-    print_interval = 500
-    save_interval = 10000
-    save_dir = r"Model_Saves\Conv_5"
+    print_interval = 250
+    save_interval = 5000
+    save_dir = r"Model_Saves\Conv_7"
 
     # for _ in range(num_epochs):
     train(
