@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import os
 import json
 import random
+from unidecode import unidecode
 
 from bitlist import bitlist
 import torch
@@ -29,7 +30,7 @@ PrefixInfo = dict[str, dict[str, int]]
 
 
 # Get the prefix-frequency info for the given file.
-def get_prefix_info_from_text(filename: str) -> PrefixInfo:
+def get_prefix_info_from_text(filename: str, prefix_len: int) -> PrefixInfo:
     # Read the file.
     with open(filename, "r", encoding="utf8") as file:
         text = file.read()
@@ -41,7 +42,7 @@ def get_prefix_info_from_text(filename: str) -> PrefixInfo:
         text = text.replace("  ", " ")
 
     # Gather the prefix information.
-    prefix_len = 4
+    # prefix_len = 4
     result = PrefixInfo()
     current_prefix = ""
     for c in text:
@@ -78,13 +79,86 @@ def add_prefix_info(
             p1_freqs[c] += freq
 
 
+# Make the prefix-info for the specified file and save it in the specified file.
+def make_prefix_info_for_file(
+    in_filepath: str, out_filepath: str, max_prefix_len: int
+) -> None:
+    # If the file already exists, don't overwrite it.
+    if os.path.exists(out_filepath):
+        return
+
+    text = ""
+    # Read the text from the file. If we throw an exception, just skip this file.
+    try:
+        with open(in_filepath, "r", encoding="utf8") as file:
+            text = file.read()
+            text = unidecode(text)
+            text = clean_up_text(text)
+    except KeyboardInterrupt:
+        raise
+    except:
+        pass
+
+    # Get the prefix-info.
+    current_prefix = ""
+    prefix_to_freqs = PrefixInfo()
+    for c in text:
+        # Take note of this character.
+        # For each sub-prefix (including the whole prefix),
+        # take note that that sub-prefix led to this character.
+        for sub_prefix_len in range(1, len(current_prefix) + 1):
+            sub_prefix = current_prefix[-sub_prefix_len:]
+            if not sub_prefix in prefix_to_freqs:
+                # prefix_to_freqs[sub_prefix] = {c: 0 for c in OUT_CHARS}
+                prefix_to_freqs[sub_prefix] = dict[str, int]()
+            freqs = prefix_to_freqs[sub_prefix]
+            if not c in freqs:
+                freqs[c] = 0
+            # prefix_to_freqs[sub_prefix][c] += 1
+            freqs[c] += 1
+
+        # Update the current prefix.
+        current_prefix = current_prefix + c
+        current_prefix = current_prefix[-max_prefix_len:]
+
+    # Save the data to file.
+    with open(out_filepath, "w") as file:
+        json.dump(prefix_to_freqs, file)
+
+
+# Make the prefix-info, split into individual files.
+def make_prefix_info_filewise() -> None:
+    in_dir = r"Corpora\Wikipedia\Wikipedia_Smaller"
+    out_dir = r"Filewise_Prefix_Info\Wikipedia_Smaller"
+    out_filename_template = "freqs_{}.json"
+
+    max_prefix_len = 10
+    for i, in_filename in enumerate(os.listdir(in_dir)):
+        # Get the name of the output file.
+        out_filename = out_filename_template.format(i)
+        out_filepath = os.path.join(out_dir, out_filename)
+        in_filepath = os.path.join(in_dir, in_filename)
+        print(in_filename)
+        make_prefix_info_for_file(
+            in_filepath=in_filepath,
+            out_filepath=out_filepath,
+            max_prefix_len=max_prefix_len,
+        )
+
+
 def make_prefix_info():
     files_dir = r"Corpora\OANC_GrAF\OANC_Text_Files"
     out_filepath = r"Prefix_Info\prefix_info.json"
     prefix_info = PrefixInfo()
+
+    # Only use one character to predict the next.
+    prefix_len = 5
     for filename in os.listdir(files_dir):
+        print(filename)
         filepath = os.path.join(files_dir, filename)
-        file_prefix_info = get_prefix_info_from_text(filename=filepath)
+        file_prefix_info = get_prefix_info_from_text(
+            filename=filepath, prefix_len=prefix_len
+        )
         add_prefix_info(prefix_info, file_prefix_info)
 
     with open(out_filepath, "w") as out_file:
@@ -124,12 +198,21 @@ def markov_make_text():
 
 def get_chars_sorted_by_frequency_descending(freqs: Mapping[str, int]) -> list[str]:
     chars = list(freqs)
+
+    # Put the characters that are most frequent in general first.
+    chars.sort(key=lambda c: CHARS_BY_FREQUENCY.index(c))
+
+    # Then sort by the frequencies given.
     chars.sort(key=lambda c: freqs.get(c, 0), reverse=True)
     return chars
 
 
 def get_prefix_info() -> dict[str, dict[str, int]]:
-    in_file = r"Prefix_Info\prefix_info_oanc_len4_lowercase.json"
+    # in_file = r"Prefix_Info\prefix_info_oanc_len1_lowercase.json"
+    # in_file = r"Prefix_Info\prefix_info_oanc_len2_lowercase.json"
+    # in_file = r"Prefix_Info\prefix_info_oanc_len3_lowercase.json"
+    # in_file = r"Prefix_Info\prefix_info_oanc_len4_lowercase.json"
+    in_file = r"Prefix_Info\prefix_info_oanc_len5_lowercase.json"
     with open(in_file) as file:
         prefix_info = json.load(file)
     return prefix_info
@@ -161,13 +244,20 @@ class FixedLengthPredixMarkovPredictor(CharPredictor):
     def predict_char(self, text: str) -> list[str] | None:
         # If the text isn't long enough, we have no prediction.
         if len(text) < self.prefix_len:
-            return None
+            # return None
+            return list(CHARS_BY_FREQUENCY)
 
         # Get the prefix.
         prefix = text[-self.prefix_len :]
         freqs = self.prefix_info.get(prefix, None)
         if freqs is None:
-            return None
+            # return None
+            freqs = {c: 0 for c in OUT_CHARS}
+        else:
+            freqs = freqs.copy()
+            for c in OUT_CHARS:
+                if not c in freqs:
+                    freqs[c] = 0
 
         sorted_chars = get_chars_sorted_by_frequency_descending(freqs=freqs)
         return sorted_chars
@@ -599,16 +689,19 @@ class ModelPredictor(CharPredictor):
         chars.sort(key=lambda c: char_to_score.get(c, low_score), reverse=True)
         return chars
 
+
 def get_model():
     # model = models.SimpleLetterModel()
     model = models.ConvLetterModel()
     # filepath = r"Model_Saves\Fully_Connected\1_0_0_During_624.model"
     # filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
     # filepath = r"Model_Saves\Conv_6\1_Epoch_2_1_After.model"
-    filepath = r"Model_Saves\Conv_7\1_Epoch_0_0_During_5000.model"
+    # filepath = r"Model_Saves\Conv_7\1_Epoch_0_0_During_5000.model"
+    filepath = r"Model_Saves\Conv_7\1_Epoch_7_1_After.model"
     model.load_state_dict(torch.load(filepath))
     model.eval()
     return model
+
 
 # Test compression using an NN.
 def test_nn_compress():
@@ -708,16 +801,26 @@ def get_token_frequencies(
     return result
 
 
+# Return the char-predictor and the prefix length.
+def get_predictor() -> tuple[CharPredictor, int]:
+    prefix_len = 5
+    predictor = FixedLengthPredixMarkovPredictor(
+        prefix_info=get_prefix_info(), prefix_len=prefix_len
+    )
+    return predictor, prefix_len
+
+
 # Determine the frequencies of the different tokens we will use.
 def determine_token_frequencies():
     # model = models.SimpleLetterModel()
     # filepath = r"Model_Saves\Fully_Connected_4\1_Epoch_315_1_After.model"
     # model.load_state_dict(torch.load(filepath))
     # model.eval()
-    model = get_model()
+    # model = get_model()
 
-    prefix_len = 10
-    predictor = ModelPredictor(model=model, prefix_len=prefix_len)
+    # prefix_len = 10
+    # predictor = ModelPredictor(model=model, prefix_len=prefix_len)
+    predictor, prefix_len = get_predictor()
 
     # # A for the 1st predicted char, B for the second, etc.
     # pred_char_tokens = ALPHABET.upper() + "_"
@@ -1022,7 +1125,7 @@ def test_huffman_encode():
 # Print the expected number of bits per character.
 def get_expected_bits_per_character():
     # Read the token count information.
-    tok_to_count_filename = r"token_counts.json"
+    tok_to_count_filename = r"token_counts_prefix_5.json"
     with open(tok_to_count_filename) as file:
         tok_to_count = cast(dict[str, int], json.load(file))
 
@@ -1046,6 +1149,7 @@ def get_expected_bits_per_character():
 
 def main():
     # make_prefix_info()
+    make_prefix_info_filewise()
     # markov_make_text()
     # test_compress()
     # test_markov_compress()
@@ -1054,7 +1158,7 @@ def main():
     # determine_token_frequencies()
     # combine_token_counts()
     # test_huffman_encode()
-    get_expected_bits_per_character()
+    # get_expected_bits_per_character()
 
 
 if __name__ == "__main__":
